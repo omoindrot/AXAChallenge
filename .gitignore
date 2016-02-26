@@ -3,3 +3,4 @@ AXA Data Challenge 2016.pdf
 ~$field_description.xlsx
 .env
 .idea
+*.pyc
