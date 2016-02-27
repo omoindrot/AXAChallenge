@@ -101,7 +101,7 @@ def lstm_data(X_cleaned, companies_set, input_days=4, flat=False):
 
     X_train = []
     y_train = []
-    count = 1
+    count = 0
     for company in companies_set:
         count += 1
         print "Company in progress: %s (%d/%d)" % (company, count, len(companies_set))
@@ -155,13 +155,16 @@ def lstm_test_set(X_cleaned, companies_set, test_days, input_days=4, flat=False)
     for company in companies_set:
         X_test_companies[company] = []
         X_cleaned_company = X_cleaned[X_cleaned['ASS_ASSIGNMENT'] == company].iloc[:, 2:]
+        index_company = companies_set.index(company)
         for day in test_days:
             i = (day - begin).days - 3 - input_days + 1
-            test_example = X_cleaned_company[i: i+input_days].values
+            test_example = np.zeros((input_days, (len(companies_set)+48)))
+            test_example[:, len(companies_set):] = X_cleaned_company[i: i+input_days].values
+            test_example[:, index_company] = 1.
             if not flat:
                 X_test_companies[company].append(test_example)
             else:
-                X_test_companies[company].append(test_example.reshape(input_days*48))
+                X_test_companies[company].append(test_example.reshape(input_days*(len(companies_set)+48)))
         X_test_companies[company] = np.array(X_test_companies[company])
 
     return X_test_companies

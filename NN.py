@@ -4,7 +4,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, date, timedelta
 
-from preprocessing import cleanup_data, lstm_data, split_train_val, lstm_test_set
+from preprocessing import cleanup_data, lstm_data, split_train_val
+from submission import create_submission
 
 from keras.utils.np_utils import accuracy
 from keras.models import Sequential
@@ -47,6 +48,7 @@ model.add(Dense(256, input_shape=(input_days*(num_companies+48),)))
 model.add(Activation('relu'))
 model.add(Dropout(0.3))
 model.add(Dense(48))
+model.add(Activation('relu'))
 
 model.compile(loss='mse', optimizer='rmsprop')
 
@@ -57,3 +59,5 @@ model.fit(X_train, y_train, batch_size=8, nb_epoch=20,
 predictions = model.predict(X_val)
 MSE = np.mean((predictions-y_val)**2)
 print "Mean Square Error of the model: ", MSE  # MSE = 61 for input_days=4
+
+create_submission(X_cleaned, model, companies_set, input_days=input_days, flat=True)

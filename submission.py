@@ -18,8 +18,12 @@ def create_submission(X_cleaned, model, companies_set, input_days=4, flat=False)
 
     y_predicted_companies = {}
     for company in companies_set:
-        y_predicted_companies[company] = model.predict({'input': X_test_companies[company]})['output']
-        y_predicted_companies[company][y_predicted_companies[company]<0] = 0.
+        if not flat:
+            y_predicted_companies[company] = model.predict({'input': X_test_companies[company]})['output']
+            y_predicted_companies[company][y_predicted_companies[company] < 0] = 0.
+        else:
+            y_predicted_companies[company] = model.predict(X_test_companies[company])
+            y_predicted_companies[company][y_predicted_companies[company] < 0] = 0.
 
     # y_predicted_companies[company] of shape 12, 48
 
@@ -27,7 +31,12 @@ def create_submission(X_cleaned, model, companies_set, input_days=4, flat=False)
     submission = f1.readlines()
     f1.close()
 
-    f2 = open('submission/lstm_%ddays_64hdim.txt' % input_days, 'w')
+    if not flat:
+        name = 'submission/lstm_%ddays_64hdim.txt' % input_days
+    else:
+        name = 'submission/nn_%ddays_256hdim.txt' % input_days
+
+    f2 = open(name, 'w')
     f2.write(submission[0])
 
     for i in range(1, len(submission)):

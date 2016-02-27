@@ -51,7 +51,7 @@ model.add_input(name='input', input_shape=(input_days, num_companies+48))
 model.add_node(LSTM(64), name='lstm', input='input')
 model.add_node(Dropout(0.5), name='dropout', input='lstm')
 model.add_node(Dense(48), name='prediction', input='dropout')
-# TODO: make the results always positive
+# DONE: make the results always positive
 model.add_node(Activation('relu'), name='relu', input='prediction')
 model.add_output(name='output', input='relu')
 
@@ -60,7 +60,7 @@ model.compile('rmsprop', {'output': 'mse'})
 print('Training...')
 model.fit({'input': X_train, 'output': y_train},
           batch_size=16,
-          nb_epoch=20, validation_data={'input': X_val, 'output': y_val})
+          nb_epoch=1, validation_data={'input': X_val, 'output': y_val})
 
 
 y_predicted = model.predict({'input': X_val})['output']
@@ -68,4 +68,4 @@ y_predicted[y_predicted<0] = 0.
 MSE = np.mean((y_predicted-y_val)**2)
 # MSE = 67.65 (with full data, and input_days=4)
 
-create_submission(X_cleaned, model, companies_set, input_days=input_days)
+create_submission(X_cleaned, model, companies_set, input_days=input_days, flat=False)
