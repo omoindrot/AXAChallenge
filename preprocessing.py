@@ -43,18 +43,21 @@ def cleanup_data(X, companies_set):
     return X_cleaned
 
 
-def lstm_data_company(X_cleaned, company, input_days=4, flat=False):
+def lstm_data_company(X_cleaned, companies_set, company, input_days=4, flat=False):
     """
-    Creates a training dataset with (input_days, 48) in, and 48 out
+    Creates a training dataset with (input_days, len(companies_set)+48) in, and 48 out
     :param X_cleaned: DataFrame with 50 columns (ASS_ASSIGNMENT, DATE, 48 slots)
     :param company: name of the company for which we create the dataset
+    :param companies_set: names of the companies in total
     :param input_days: number of days to take into account
-    :param flat: if you want the shape of each row to be (input_days*48,)
+    :param flat: if you want the shape of each row to be (input_days*(48+len),)
 
     :return: lists X_train, y_train of same length
     """
 
     X_company_cleaned = X_cleaned[X_cleaned['ASS_ASSIGNMENT'] == company]
+    index_company = companies_set.index(company)
+
     X_company_cleaned = X_company_cleaned.iloc[:, 2:]
 
     # List of days in the test set
@@ -72,13 +75,15 @@ def lstm_data_company(X_cleaned, company, input_days=4, flat=False):
             if 0 <= diff < input_days+3:
                 valid = False
         if valid:
-            train_example = X_company_cleaned[i:i+input_days].values
+            train_example = np.zeros((input_days, 48+len(companies_set)))
+            train_example[:, len(companies_set):] += X_company_cleaned[i:i+input_days].values
+            train_example[:, index_company] += 1.
             train_output = X_company_cleaned.iloc[i+input_days+3].values
             if not flat:
                 X_train.append(train_example)
                 y_train.append(train_output)
             else:
-                X_train.append(train_example.reshape(input_days*48))
+                X_train.append(train_example.reshape(input_days*(48+len(companies_set))))
                 y_train.append(train_output.reshape(48))
 
     return X_train, y_train
@@ -96,11 +101,11 @@ def lstm_data(X_cleaned, companies_set, input_days=4, flat=False):
 
     X_train = []
     y_train = []
-    i = 0
+    count = 1
     for company in companies_set:
-        i += 1
-        print "Company in progress: %s (%d/%d)" % (company, i, len(companies_set))
-        x, y = lstm_data_company(X_cleaned, company=company, input_days=input_days, flat=flat)
+        count += 1
+        print "Company in progress: %s (%d/%d)" % (company, count, len(companies_set))
+        x, y = lstm_data_company(X_cleaned, companies_set, company, input_days=input_days, flat=flat)
         X_train += x
         y_train += y
     return X_train, y_train
