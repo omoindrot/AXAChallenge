@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, date, timedelta
 
-from preprocessing import lstm_data, split_train_val
+from preprocessing import cleanup_data, lstm_data, split_train_val, lstm_test_set
 
 from keras.utils.np_utils import accuracy
 from keras.models import Sequential
@@ -12,7 +12,7 @@ from keras.layers.core import Dense, Dropout, Activation
 
 # Create a submission with a Fully Connected Network taking the week before as input
 
-X = pd.read_csv('data/train_2011_2012.csv', sep=';')
+# X = pd.read_csv('data/train_2011_2012.csv', sep=';')
 
 res = pd.read_csv('submission.txt', sep='\t')
 
@@ -23,11 +23,11 @@ res = pd.read_csv('submission.txt', sep='\t')
 companies_set = set(res['ASS_ASSIGNMENT'].value_counts().index)
 
 # We only keep three columns: DATE, ASS_ASSIGNMENT, CSPL_CALLS
-X = pd.DataFrame({'DATE': X['DATE'], 'ASS_ASSIGNMENT': X['ASS_ASSIGNMENT'], 'CALLS': X['CSPL_CALLS']})
+# X = pd.DataFrame({'DATE': X['DATE'], 'ASS_ASSIGNMENT': X['ASS_ASSIGNMENT'], 'CALLS': X['CSPL_CALLS']})
+X_cleaned = pd.read_pickle('tmp/X_cleaned')
 
-# Select one company
-input_days = 4
-X_train, y_train = lstm_data(X, companies_set, input_days=input_days, flat=False)
+input_days = 3
+X_train, y_train = lstm_data(X_cleaned, companies_set, input_days=input_days, flat=True)
 X_train, X_val, y_train, y_val = split_train_val(X_train, y_train)
 
 print '-'*50
@@ -46,9 +46,9 @@ model.add(Dense(48))
 model.compile(loss='mse', optimizer='rmsprop')
 
 print('Training...')
-model.fit(X_train, y_train, batch_size=1, nb_epoch=10,
+model.fit(X_train, y_train, batch_size=8, nb_epoch=10,
           validation_data=(X_val, y_val))
 
 predictions = model.predict(X_val)
 MSE = np.mean((predictions-y_val)**2)
-print "Mean Square Error of the model: ", MSE  # MSE = 1.51
+print "Mean Square Error of the model: ", MSE  # MSE = 84.8 for input_days=3

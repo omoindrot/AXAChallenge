@@ -43,7 +43,7 @@ def cleanup_data(X, companies_set):
     return X_cleaned
 
 
-def lstm_data_company(X_cleaned, company='SAP', input_days=7, flat=False):
+def lstm_data_company(X_cleaned, company, input_days=4, flat=False):
     """
     Creates a training dataset with (input_days, 48) in, and 48 out
     :param X_cleaned: DataFrame with 50 columns (ASS_ASSIGNMENT, DATE, 48 slots)
@@ -84,7 +84,7 @@ def lstm_data_company(X_cleaned, company='SAP', input_days=7, flat=False):
     return X_train, y_train
 
 
-def lstm_data(X_cleaned, companies_set, input_days=7, flat=False):
+def lstm_data(X_cleaned, companies_set, input_days=4, flat=False):
     """
     Creates a dataset for all the companies
     :param X_cleaned: DataFrame with 50 columns (ASS_ASSIGNMENT, DATE, 48 slots)
@@ -133,7 +133,7 @@ def split_train_val(X, y, split_val=0.2):
     return X_train, X_val, y_train, y_val
 
 
-def lstm_test_set(X_cleaned, companies_set, test_days, input_days=7, flat=False):
+def lstm_test_set(X_cleaned, companies_set, test_days, input_days=4, flat=False):
     """
     Creates the test dataset with (input_days, 48) in, and 48 out
     :param X_cleaned: DataFrame with 50 columns (ASS_ASSIGNMENT, DATE, 48 slots)
