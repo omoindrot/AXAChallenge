@@ -8,6 +8,16 @@ from datetime import datetime, date, timedelta
 # We only keep three columns: DATE, ASS_ASSIGNMENT, CSPL_CALLS
 # X = pd.DataFrame({'DATE': X['DATE'], 'ASS_ASSIGNMENT': X['ASS_ASSIGNMENT'], 'CALLS': X['CSPL_CALLS']})
 
+def transform_data(X, companies_set):
+    """
+    Transform the initial DataFrame X to a more appropriate DataFrame.
+    For instance, string columns are transformed into one hot vectors
+    :param X: DataFrame from the csv file
+    :param companies_set: set of companies of interest (i.e. ASS_ASSIGNMENT of interest)
+    :return: X_transformed, new DataFrame with columns DATE, multiple feature columns (float32) and CSPL_CALLS
+    """
+
+
 
 def cleanup_data(X, companies_set):
     """
@@ -78,14 +88,13 @@ def lstm_data_company(X_cleaned, companies_set, company, input_days=4, flat=Fals
             train_example = np.zeros((input_days, 48+len(companies_set)))
             train_example[:, len(companies_set):] += X_company_cleaned[i:i+input_days].values
             train_example[:, index_company] += 1.
-            train_output = X_company_cleaned.iloc[i+input_days+3].values
+            train_output = X_company_cleaned.iloc[i+input_days+2].values
             if not flat:
                 X_train.append(train_example)
                 y_train.append(train_output)
             else:
                 X_train.append(train_example.reshape(input_days*(48+len(companies_set))))
                 y_train.append(train_output.reshape(48))
-
     return X_train, y_train
 
 

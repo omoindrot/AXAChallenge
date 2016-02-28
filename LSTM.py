@@ -32,7 +32,7 @@ num_companies = len(companies_set)
 # X = pd.DataFrame({'DATE': X['DATE'], 'ASS_ASSIGNMENT': X['ASS_ASSIGNMENT'], 'CALLS': X['CSPL_CALLS']})
 
 # Select the number of days to take into account
-input_days = 4
+input_days = 5
 # X_cleaned = cleanup_data(X, companies_set)
 X_cleaned = pd.read_pickle('tmp/X_cleaned')
 

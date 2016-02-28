@@ -32,7 +32,7 @@ num_companies = len(companies_set)
 # X = pd.DataFrame({'DATE': X['DATE'], 'ASS_ASSIGNMENT': X['ASS_ASSIGNMENT'], 'CALLS': X['CSPL_CALLS']})
 X_cleaned = pd.read_pickle('tmp/X_cleaned')
 
-input_days = 4
+input_days = 5
 X_train, y_train = lstm_data(X_cleaned, companies_set, input_days=input_days, flat=True)
 X_train, X_val, y_train, y_val = split_train_val(X_train, y_train)
 
@@ -53,11 +53,22 @@ model.add(Activation('relu'))
 model.compile(loss='mse', optimizer='rmsprop')
 
 print('Training...')
-model.fit(X_train, y_train, batch_size=8, nb_epoch=20,
+history = model.fit(X_train, y_train, batch_size=8, nb_epoch=1,
           validation_data=(X_val, y_val))
 
 predictions = model.predict(X_val)
 MSE = np.mean((predictions-y_val)**2)
-print "Mean Square Error of the model: ", MSE  # MSE = 61 for input_days=4
+print "Mean Square Error of the model: ", MSE  # MSE = 47.3 for input_days=4
+
+# Compare prediction and y_val:
+i = 8
+i += 1
+for j in range(48):
+    print "%d - %f" % (y_val[i, j], predictions[i, j])
+    print
+
+print "local MSE: %f" % np.mean((predictions[i]-y_val[i])**2)
+
+# Create submission
 
 create_submission(X_cleaned, model, companies_set, input_days=input_days, flat=True)
