@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 X_cleaned = pd.read_pickle('tmp/X_cleaned')
 
-assignment = 'Téléphonie'
+assignment = 'Tech. Axa'
 X_ass = X_cleaned[X_cleaned['ASS_ASSIGNMENT'] == assignment]
 X_ass = pd.DataFrame(X_ass.iloc[:, 2:].values, index=X_ass.iloc[:, 1])
 X_sum = X_ass.sum(axis=1)
@@ -27,7 +27,12 @@ X_ass.loc[mardi, 23].plot()
 X_sum.loc[days].plot()
 plt.show()
 
+meteo_2011 = pd.read_csv('data/meteo/meteo_2011.csv', header=None, index_col=[0], names=['DPT', 'CITY', 'TEMP', 'WIND', 'WIND_DIR', 'PRECIP', 'PRESSURE'])
+meteo_2012 = pd.read_csv('data/meteo/meteo_2012.csv', header=None, index_col=[0], names=['DPT', 'CITY', 'TEMP', 'WIND', 'WIND_DIR', 'PRECIP', 'PRESSURE'])
+meteo = pd.concat([meteo_2011, meteo_2012])
+meteo = meteo.drop(['CITY', 'DPT', 'WIND', 'WIND_DIR', 'PRESSURE'], axis=1)
 
+meteo = meteo.groupby(meteo.index).mean()
 
 
 # Recuperer les donnees pour un jour pour une entreprise
