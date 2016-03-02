@@ -8,23 +8,58 @@ from datetime import datetime, date, timedelta
 # We only keep three columns: DATE, ASS_ASSIGNMENT, CSPL_CALLS
 # X = pd.DataFrame({'DATE': X['DATE'], 'ASS_ASSIGNMENT': X['ASS_ASSIGNMENT'], 'CALLS': X['CSPL_CALLS']})
 
-def transform_data(X, companies_set):
+def transform_data(X, assignment_list, columns):
     """
     Transform the initial DataFrame X to a more appropriate DataFrame.
     For instance, string columns are transformed into one hot vectors
     :param X: DataFrame from the csv file
-    :param companies_set: set of companies of interest (i.e. ASS_ASSIGNMENT of interest)
+    :param assignment_list: set of assignments of interest (i.e. ASS_ASSIGNMENT of interest)
     :return: X_transformed, new DataFrame with columns DATE, multiple feature columns (float32) and CSPL_CALLS
     """
+    X_transformed = pd.DataFrame()
+    # SPLIT_COD: unique attribute of the data center
+    # ASS_... : information concerning the rest
+    columns = ['DATE', 'SPLIT_COD', 'ASS_SOC_MERE', 'ASS_DIRECTORSHIP', 'ASS_ASSIGNMENT', 'ASS_PARTNER', 'ASS_POLE', 'CSPL_CALLS']
+    for column in columns:
+        X_transformed[column] = X[column]
+
+    # We only take the inputs where ASS_ASSIGNMENT is in the test set
+    X_bis = []
+    for assignment in assignment_list:
+        X_bis.append(X_transformed[X_transformed['ASS_ASSIGNMENT'] == assignment])
+    X_transformed = pd.concat(X_bis)
+
+    # There are 466 different SPLIT_COD now
+    index_cod = list(X_transformed['SPLIT_COD'].value_counts().index)
+    for index in index_cod:
+        x = X_transformed[X_transformed['SPLIT_COD'] == index]
+
+
+    for assignment in assignment_list:
+        X_assignment = X_transformed[X_transformed['ASS_ASSIGNMENT'] == assignment]
+        print assignment
+        print X_assignment['ASS_DIRECTORSHIP'].value_counts()
+        print X_assignment['ASS_PARTNER'].value_counts()
+        print X_assignment['ASS_POLE'].value_counts()
+        print
+    # We observe unique attributes for a given ASS_ASSIGNMEMNT
+    for pole in list(X_transformed['ASS_POLE'].value_counts().index):
+        X_assignment = X_transformed[X_transformed['ASS_POLE'] == pole]
+        print pole
+        print X_assignment['ASS_DIRECTORSHIP'].value_counts()
+        print X_assignment['ASS_PARTNER'].value_counts()
+        print X_assignment['ASS_ASSIGNMENT'].value_counts()
+        print
 
 
 
-def cleanup_data(X, companies_set):
+
+def cleanup_data(X, assignment_list):
     """
-    Clean the data to create a dataframe of size (num_companies, 365*2+1, 48).
-    Each company has every day available, with 48 slots
+    Clean the data to create a dataframe of size (num_assignments, 365*2+1, 48).
+    Each assignment has every day available, with 48 slots
     :param X: DataFrame with columns DATE, ASS_ASSIGNMENT and CALLS
-    :param companies_set: companies for which we create the cleaned data
+    :param assignment_list: assignments for which we create the cleaned data
     :return: X_cleaned, DataFrame withe columns DATE, ASS_ASSIGNMENT and 48 columns CALLS
     """
     X_grouped = X.groupby(['ASS_ASSIGNMENT', 'DATE']).sum()
@@ -34,41 +69,41 @@ def cleanup_data(X, companies_set):
 
     X_cleaned = pd.DataFrame()
     count = 0
-    for company in companies_set:
+    for assignment in assignment_list:
         count += 1
-        print "Company %s (%d / %d)" % (company, count, len(companies_set))
-        X_company_grouped = X_grouped.loc[company]
-        X_company_cleaned = pd.DataFrame({'DAY': index_days, 'ASS_ASSIGNMENT': company})
+        print "Company %s (%d / %d)" % (assignment, count, len(assignment_list))
+        X_assignment_grouped = X_grouped.loc[assignment]
+        X_assignment_cleaned = pd.DataFrame({'DAY': index_days, 'ASS_ASSIGNMENT': assignment})
         for i in range(48):
-            X_company_cleaned[i] = pd.Series(np.zeros(2*365+1))
+            X_assignment_cleaned[i] = pd.Series(np.zeros(2*365+1))
         # For each slot we add the calls
         for slot in index:
             i = (slot.date() - begin).days  # index in values to insert (0<=i<731)
             j = 2 + 2*slot.hour + slot.minute/30  # index in values to insert (0<=j<48)
-            if slot.isoformat(' ')+'.000' in X_company_grouped.index:
-                X_company_cleaned.iloc[i, j] += X_grouped.loc[company, slot.isoformat(' ')+'.000']['CALLS']
+            if slot.isoformat(' ')+'.000' in X_assignment_grouped.index:
+                X_assignment_cleaned.iloc[i, j] += X_grouped.loc[assignment, slot.isoformat(' ')+'.000']['CALLS']
     # We concatenate the DataFrame created
-        X_cleaned = pd.concat([X_cleaned, X_company_cleaned])
+        X_cleaned = pd.concat([X_cleaned, X_assignment_cleaned])
 
     return X_cleaned
 
 
-def lstm_data_company(X_cleaned, companies_set, company, input_days=4, flat=False):
+def lstm_data_assignment(X_cleaned, assignment_list, assignment, input_days=4, flat=False):
     """
-    Creates a training dataset with (input_days, len(companies_set)+48) in, and 48 out
+    Creates a training dataset with (input_days, len(assignment_list)+48) in, and 48 out
     :param X_cleaned: DataFrame with 50 columns (ASS_ASSIGNMENT, DATE, 48 slots)
-    :param company: name of the company for which we create the dataset
-    :param companies_set: names of the companies in total
+    :param assignment: name of the assignment for which we create the dataset
+    :param assignment_list: names of the assignments in total
     :param input_days: number of days to take into account
     :param flat: if you want the shape of each row to be (input_days*(48+len),)
 
     :return: lists X_train, y_train of same length
     """
 
-    X_company_cleaned = X_cleaned[X_cleaned['ASS_ASSIGNMENT'] == company]
-    index_company = companies_set.index(company)
+    X_assignment_cleaned = X_cleaned[X_cleaned['ASS_ASSIGNMENT'] == assignment]
+    index_assignment = assignment_list.index(assignment)
 
-    X_company_cleaned = X_company_cleaned.iloc[:, 2:]
+    X_assignment_cleaned = X_assignment_cleaned.iloc[:, 2:]
 
     # List of days in the test set
     days_test = [date(2012, 1, 3), date(2012, 2, 8), date(2012, 3, 12), date(2012, 4, 16),
@@ -85,24 +120,24 @@ def lstm_data_company(X_cleaned, companies_set, company, input_days=4, flat=Fals
             if 0 <= diff < input_days+3:
                 valid = False
         if valid:
-            train_example = np.zeros((input_days, 48+len(companies_set)))
-            train_example[:, len(companies_set):] += X_company_cleaned[i:i+input_days].values
-            train_example[:, index_company] += 1.
-            train_output = X_company_cleaned.iloc[i+input_days+2].values
+            train_example = np.zeros((input_days, 48+len(assignment_list)))
+            train_example[:, len(assignment_list):] += X_assignment_cleaned[i:i+input_days].values
+            train_example[:, index_assignment] += 1.
+            train_output = X_assignment_cleaned.iloc[i+input_days+2].values
             if not flat:
                 X_train.append(train_example)
                 y_train.append(train_output)
             else:
-                X_train.append(train_example.reshape(input_days*(48+len(companies_set))))
+                X_train.append(train_example.reshape(input_days*(48+len(assignment_list))))
                 y_train.append(train_output.reshape(48))
     return X_train, y_train
 
 
-def lstm_data(X_cleaned, companies_set, input_days=4, flat=False):
+def lstm_data(X_cleaned, assignment_list, input_days=4, flat=False):
     """
-    Creates a dataset for all the companies
+    Creates a dataset for all the assignments
     :param X_cleaned: DataFrame with 50 columns (ASS_ASSIGNMENT, DATE, 48 slots)
-    :param companies_set: names of the companies for which we create the dataset
+    :param assignment_list: names of the assignments for which we create the dataset
     :param input_days: number of days to take into account
     :param flat: if you want the shape of each row to be (input_days*48,)
     :return: lists X_train, y_train of same length
@@ -111,10 +146,10 @@ def lstm_data(X_cleaned, companies_set, input_days=4, flat=False):
     X_train = []
     y_train = []
     count = 0
-    for company in companies_set:
+    for assignment in assignment_list:
         count += 1
-        print "Company in progress: %s (%d/%d)" % (company, count, len(companies_set))
-        x, y = lstm_data_company(X_cleaned, companies_set, company, input_days=input_days, flat=flat)
+        print "Company in progress: %s (%d/%d)" % (assignment, count, len(assignment_list))
+        x, y = lstm_data_assignment(X_cleaned, assignment_list, assignment, input_days=input_days, flat=flat)
         X_train += x
         y_train += y
     return X_train, y_train
@@ -147,11 +182,11 @@ def split_train_val(X, y, split_val=0.2):
     return X_train, X_val, y_train, y_val
 
 
-def lstm_test_set(X_cleaned, companies_set, test_days, input_days=4, flat=False):
+def lstm_test_set(X_cleaned, assignment_list, test_days, input_days=4, flat=False):
     """
     Creates the test dataset with (input_days, 48) in, and 48 out
     :param X_cleaned: DataFrame with 50 columns (ASS_ASSIGNMENT, DATE, 48 slots)
-    :param companies_set: names of the companies for which we create the dataset
+    :param assignment_list: names of the assignments for which we create the dataset
     :param test_days: days trying to be predicted
     :param input_days: number of days to take into account
     :param flat: if you want the shape of each row to be (input_days*48,)
@@ -160,23 +195,23 @@ def lstm_test_set(X_cleaned, companies_set, test_days, input_days=4, flat=False)
     """
 
     begin = date(2011, 1, 1)
-    X_test_companies = {}
-    for company in companies_set:
-        X_test_companies[company] = []
-        X_cleaned_company = X_cleaned[X_cleaned['ASS_ASSIGNMENT'] == company].iloc[:, 2:]
-        index_company = companies_set.index(company)
+    X_test_assignments = {}
+    for assignment in assignment_list:
+        X_test_assignments[assignment] = []
+        X_cleaned_assignment = X_cleaned[X_cleaned['ASS_ASSIGNMENT'] == assignment].iloc[:, 2:]
+        index_assignment = assignment_list.index(assignment)
         for day in test_days:
             i = (day - begin).days - 3 - input_days + 1
-            test_example = np.zeros((input_days, (len(companies_set)+48)))
-            test_example[:, len(companies_set):] = X_cleaned_company[i: i+input_days].values
-            test_example[:, index_company] = 1.
+            test_example = np.zeros((input_days, (len(assignment_list)+48)))
+            test_example[:, len(assignment_list):] = X_cleaned_assignment[i: i+input_days].values
+            test_example[:, index_assignment] = 1.
             if not flat:
-                X_test_companies[company].append(test_example)
+                X_test_assignments[assignment].append(test_example)
             else:
-                X_test_companies[company].append(test_example.reshape(input_days*(len(companies_set)+48)))
-        X_test_companies[company] = np.array(X_test_companies[company])
+                X_test_assignments[assignment].append(test_example.reshape(input_days*(len(assignment_list)+48)))
+        X_test_assignments[assignment] = np.array(X_test_assignments[assignment])
 
-    return X_test_companies
+    return X_test_assignments
 
 
 
@@ -201,7 +236,7 @@ X.drop('MINUTE', axis=1, inplace=True)
 '''
 
 
-# List of companies ('ASS_ASSIGNMENT')
+# List of assignments ('ASS_ASSIGNMENT')
 # X['ASS_ASSIGNMENT'].value_counts()
 '''
 Total: 55 valeurs différentes
@@ -262,4 +297,32 @@ Prestataires                         9598
 #IPA Belgique - E/A MAJ               7894
 #Evenements                            431
 #Juridique                              12
+'''
+
+
+
+# List of companies ('ASS_SOC_MERE')
+# X['ASS_SOC_MERE'].value_counts()
+'''
+Total: 8 valeurs différentes
+Total dans le test set: 27 entreprises différentes
+
+Entity1 France                        5348091 Médical has 249167 inputs
+Entity2 Belgique                      2257811 (only in Médical, with 541804 inputs)
+#TAI                                    974348
+#Entity2 Suisse                         421863
+#Entity1 Maroc Services                 116266
+#Entity1 Maroc                           33457
+#AMERICAN EXPRESS VOYAGES D'AFFAIRE      29449
+#DOMISERVE                               11395
+'''
+
+'''
+ASS_SOC_MERE     - ASS_DIRECTORSHIP - ASS_ASSIGNMENT -        ASS_PARTNER              - ASS_POLE
+
+Entity2 Belgique - Assistance (OPS) - Médical        - Nan                             - MEDICAL
+
+Entity1 France - Assistance         - Crises         - Crises                          - CRISES
+
+Entity1 France - Commerciale        - RTC            - Relation Téléphonique Clientèle - CLIENTS
 '''
