@@ -8,51 +8,6 @@ from datetime import datetime, date, timedelta
 # We only keep three columns: DATE, ASS_ASSIGNMENT, CSPL_CALLS
 # X = pd.DataFrame({'DATE': X['DATE'], 'ASS_ASSIGNMENT': X['ASS_ASSIGNMENT'], 'CALLS': X['CSPL_CALLS']})
 
-def transform_data(X, assignment_list, columns):
-    """
-    Transform the initial DataFrame X to a more appropriate DataFrame.
-    For instance, string columns are transformed into one hot vectors
-    :param X: DataFrame from the csv file
-    :param assignment_list: set of assignments of interest (i.e. ASS_ASSIGNMENT of interest)
-    :return: X_transformed, new DataFrame with columns DATE, multiple feature columns (float32) and CSPL_CALLS
-    """
-    X_transformed = pd.DataFrame()
-    # SPLIT_COD: unique attribute of the data center
-    # ASS_... : information concerning the rest
-    columns = ['DATE', 'SPLIT_COD', 'ASS_SOC_MERE', 'ASS_DIRECTORSHIP', 'ASS_ASSIGNMENT', 'ASS_PARTNER', 'ASS_POLE', 'CSPL_CALLS']
-    for column in columns:
-        X_transformed[column] = X[column]
-
-    # We only take the inputs where ASS_ASSIGNMENT is in the test set
-    X_bis = []
-    for assignment in assignment_list:
-        X_bis.append(X_transformed[X_transformed['ASS_ASSIGNMENT'] == assignment])
-    X_transformed = pd.concat(X_bis)
-
-    # There are 466 different SPLIT_COD now
-    index_cod = list(X_transformed['SPLIT_COD'].value_counts().index)
-    for index in index_cod:
-        x = X_transformed[X_transformed['SPLIT_COD'] == index]
-
-
-    for assignment in assignment_list:
-        X_assignment = X_transformed[X_transformed['ASS_ASSIGNMENT'] == assignment]
-        print assignment
-        print X_assignment['ASS_DIRECTORSHIP'].value_counts()
-        print X_assignment['ASS_PARTNER'].value_counts()
-        print X_assignment['ASS_POLE'].value_counts()
-        print
-    # We observe unique attributes for a given ASS_ASSIGNMEMNT
-    for pole in list(X_transformed['ASS_POLE'].value_counts().index):
-        X_assignment = X_transformed[X_transformed['ASS_POLE'] == pole]
-        print pole
-        print X_assignment['ASS_DIRECTORSHIP'].value_counts()
-        print X_assignment['ASS_PARTNER'].value_counts()
-        print X_assignment['ASS_ASSIGNMENT'].value_counts()
-        print
-
-
-
 
 def cleanup_data(X, assignment_list):
     """
@@ -75,7 +30,7 @@ def cleanup_data(X, assignment_list):
         X_assignment_grouped = X_grouped.loc[assignment]
         X_assignment_cleaned = pd.DataFrame({'DAY': index_days, 'ASS_ASSIGNMENT': assignment})
         for i in range(48):
-            X_assignment_cleaned[i] = pd.Series(np.zeros(2*365+1))
+            X_assignment_cleaned[i] = 0.
         # For each slot we add the calls
         for slot in index:
             i = (slot.date() - begin).days  # index in values to insert (0<=i<731)

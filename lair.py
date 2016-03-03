@@ -23,16 +23,9 @@ vendredi = pd.date_range('2011-01-07', periods=52*2, freq='7D')
 samedi = pd.date_range('2011-01-01', periods=52*2, freq='7D')
 dimanche = pd.date_range('2011-01-02', periods=52*2, freq='7D')
 
-X_ass.loc[mardi, 23].plot()
-X_sum.loc[days].plot()
+X_ass.loc[mardi, 23].plot('bar')
+X_sum.loc[days].plot('bar')
 plt.show()
-
-meteo_2011 = pd.read_csv('data/meteo/meteo_2011.csv', header=None, index_col=[0], names=['DPT', 'CITY', 'TEMP', 'WIND', 'WIND_DIR', 'PRECIP', 'PRESSURE'])
-meteo_2012 = pd.read_csv('data/meteo/meteo_2012.csv', header=None, index_col=[0], names=['DPT', 'CITY', 'TEMP', 'WIND', 'WIND_DIR', 'PRECIP', 'PRESSURE'])
-meteo = pd.concat([meteo_2011, meteo_2012])
-meteo = meteo.drop(['CITY', 'DPT', 'WIND', 'WIND_DIR', 'PRESSURE'], axis=1)
-
-meteo = meteo.groupby(meteo.index).mean()
 
 
 # Recuperer les donnees pour un jour pour une entreprise
