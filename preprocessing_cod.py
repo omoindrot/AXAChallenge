@@ -84,7 +84,7 @@ def build_training_set(X_cleaned, assignment_list, input_days=5, flat=False):
     :param assignment_list:
     :param input_days:
     :param flat:
-    :return: lists X_train, y_train
+    :return: dictionaries X_train, y_train
     """
 
     # List of days in the test set
@@ -103,6 +103,8 @@ def build_training_set(X_cleaned, assignment_list, input_days=5, flat=False):
         count += 1
         print "index %d / %d" % (count, len(X_cleaned.keys()))
         x = X_cleaned[cod_id]
+        # Add the meteo columns:
+        meteo = pd.read_pickle('tmp/meteo')
         # Get the ASS_ASSIGNMENT
         assignment = assignment_list[int(x.iloc[0, :27].argmax().split(' ')[1])]
         # Create the examples
@@ -119,7 +121,11 @@ def build_training_set(X_cleaned, assignment_list, input_days=5, flat=False):
                     X_train[assignment].append(train_example)
                     y_train[assignment].append(train_output)
                 else:
-                    X_train[assignment].append(train_example.reshape(input_days*(48+len(assignment_list))))
+                    size = input_days*(48+len(assignment_list))
+                    train_example_meteo = np.zeros(size+3)
+                    train_example_meteo[:size] = train_example.reshape(size)
+                    train_example_meteo[size:] = meteo.loc[day+timedelta(input_days-1+3)]
+                    X_train[assignment].append(train_example_meteo)
                     y_train[assignment].append(train_output.reshape(48))
 
     return X_train, y_train

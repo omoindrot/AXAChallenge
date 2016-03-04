@@ -40,7 +40,12 @@ y_train_full = []
 for assignment in assignment_list:
     X_train_full += X_ass[assignment]
     y_train_full += y_ass[assignment]
-X_train, X_val, y_train, y_val = split_train_val(X_train_full, y_train_full, split_val=0.)
+X_train = np.array(X_train_full)
+y_train = np.array(y_train_full)
+
+# X_train, X_val, y_train, y_val = split_train_val(X_train_full, y_train_full, split_val=0.)
+
+
 
 print '-'*50
 print '%d training examples of size (%d, )' % X_train.shape
@@ -50,7 +55,8 @@ print '%d validation examples of size (%d, )' % X_val.shape
 print '%d validation outputs of size (%d, )' % y_val.shape
 
 model = Sequential()
-model.add(Dense(256, input_shape=(input_days*(num_companies+48),)))
+#model.add(Dense(256, input_shape=(input_days*(num_companies+48),)))
+model.add(Dense(256, input_shape=(input_days*(num_companies+48)+3,)))
 model.add(Activation('relu'))
 model.add(Dropout(0.3))
 model.add(Dense(48))
@@ -59,15 +65,16 @@ model.add(Activation('relu'))
 model.compile(loss='mse', optimizer='rmsprop')
 
 print('Training...')
-history = model.fit(X_train, y_train, batch_size=32, nb_epoch=10, validation_data=(X_val, y_val))
+history = model.fit(X_train, y_train, batch_size=32, nb_epoch=100, validation_data=(X_val, y_val))
 
 predictions = model.predict(X_val)
 MSE = np.mean((predictions-y_val)**2)
-print "Mean Square Error of the model: ", MSE  # MSE = 47.3 for input_days=4 and one hidden=256
+print "Mean Square Error of the model: ", MSE   # MSE=16.5 for split_cod separated
 
 
 # Testing the model on the sum for each ASS_ASSIGNMENT
-num = len(y_ass['CMS'])
+assignment = 'CMS'
+num = len(y_ass[assignment])  # Number of days valid
 y_pred = {}
 y_validation = {}
 for assignment in assignment_list:

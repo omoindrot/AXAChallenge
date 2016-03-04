@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, date, timedelta
 
-from preprocessing import cleanup_data, lstm_data, split_train_val
+from preprocessing import cleanup_data, lstm_data, lstm_data_assignment, split_train_val
 from submission import create_submission
 
 from keras.utils.np_utils import accuracy
@@ -53,8 +53,7 @@ model.add(Activation('relu'))
 model.compile(loss='mse', optimizer='rmsprop')
 
 print('Training...')
-history = model.fit(X_train, y_train, batch_size=8, nb_epoch=1,
-          validation_data=(X_val, y_val))
+history = model.fit(X_train, y_train, batch_size=8, nb_epoch=100, validation_data=(X_val, y_val))
 
 predictions = model.predict(X_val)
 MSE = np.mean((predictions-y_val)**2)
