@@ -1,6 +1,9 @@
+# encoding: utf-8
+
 import pandas as pd
 import numpy as np
 from datetime import datetime, date, timedelta
+from sklearn import preprocessing
 import matplotlib.pyplot as plt
 
 
@@ -43,6 +46,14 @@ leap_days = [date(2011, 1, 1), date(2011, 4, 9), date(2011, 5, 1), date(2011, 5,
              date(2012, 5, 28), date(2012, 7, 14), date(2012, 8, 15), date(2012, 11, 1), date(2012, 11, 11),
              date(2012, 12, 25)]
 
+scalage = {}
+for assignment in assignment_list:
+    scalage[assignment] = 1.
+    for cod_id in list_cod[assignment]:
+        x = X_cleaned[cod_id]
+        scalage[assignment] = max(x.loc[:, 't0':'t47'].max().max(), scalage[assignment])
+    scalage[assignment] /= 3.
+
 X_bis = {}
 for assignment in assignment_list:
     print 'assignment %d/%d' % (assignment_list.index(assignment), len(assignment_list))
@@ -50,7 +61,7 @@ for assignment in assignment_list:
     for cod_id in list_cod[assignment]:
         x = X_cleaned[cod_id]  # Dataframe of shape 731, 75 with an index on days
         for i in range(27):
-            x.drop('assignment %d' % i, inplace=True)
+            x.drop('assignment %d' % i, axis=1, inplace=True)
         # Add year info
         x['y2011'] = 0.
         x['y2012'] = 0.
@@ -81,14 +92,15 @@ for assignment in assignment_list:
             x.loc[day]['TEMP'] = meteo.loc[day]['TEMP']
             x.loc[day]['PRESSURE'] = meteo.loc[day]['PRESSURE']
             x.loc[day]['PRECIP'] = meteo.loc[day]['PRECIP']
+        #
+        x.loc[:, 't0':'t47'] /= scalage[assignment]
+        x['leap_day'] = 0.
+        x['leap_day'].loc[leap_days] = 1.
         X_bis[assignment][cod_id] = x
-        X_bis[assignment][cod_id].loc[:, 't0':'t47'] /= 20.
-        X_bis[assignment][cod_id]['leap_day'] = 0.
-        X_bis[assignment][cod_id]['leap_day'].loc[leap_days] = 1.
 
 
-# pd.to_pickle(X_bis, 'tmp/X_bis')
-X_bis = pd.read_pickle('tmp/X_bis')
+pd.to_pickle(X_bis, 'tmp/X_bis')
+# X_bis = pd.read_pickle('tmp/X_bis')
 
 # List of days in the test set
 days_test = [date(2012, 1, 3), date(2012, 2, 8), date(2012, 3, 12), date(2012, 4, 16),
@@ -127,18 +139,17 @@ for assignment in assignment_list:
             if valid:
                 days = pd.date_range(day, periods=4, freq='7D')
                 train_example = x.loc[days].values
-                train_j = x.loc[day+timedelta(28)]
-                for i in range(len(X_bis[assignment].keys())):
-                    train_j.drop('cod%d' % i, inplace=True)
-                for i in range(48):
-                    train_j.drop('t%d' % i, inplace=True)
-                # for i in range(27):
-                #     train_j.drop('assignment %d' % i, inplace=True)
-                train_j = train_j.values  # size 25
+                train_j = np.zeros(25)
+                train_j[:-4] = x.loc[day+timedelta(28)].iloc[48:48+21].values
+                train_j[-4:] = x.loc[day+timedelta(28)].iloc[-4:].values
                 train_output = x.loc[day+timedelta(28)].loc['t0':'t47'].values
                 X_train[assignment][cod_id].append(train_example)
                 J_train[assignment][cod_id].append(train_j)
                 y_train[assignment][cod_id].append(train_output)
+
+pd.to_pickle((X_train, J_train, y_train), 'tmp/training_set')
+# X_train, J_train, y_train = pd.read_pickle('tmp/training_set')
+
 
 
 from keras.models import Graph
@@ -148,57 +159,75 @@ from keras.layers.recurrent import LSTM
 
 
 model = {}
+MSE = {}
+
+
+# List of cod for each assignment
+assignment_list = ['CAT', 'Domicile', 'Gestion - Accueil Telephonique', 'Japon', 'Médical', 'Nuit', 'RENAULT', 'RTC',
+                   'Regulation Medicale', 'SAP', 'Services', 'Tech. Axa', 'Tech. Inter', 'Tech. Total', 'Téléphonie']
+
+nb_epoch = {'CAT': 1000, 'Domicile': 500, 'Gestion - Accueil Telephonique': 500, 'Japon': 300, 'Médical': 300,
+            'Nuit': 300, 'RENAULT': 300, 'RTC': 300, 'Regulation Medicale': 300, 'SAP': 300, 'Services': 300,
+            'Tech. Axa': 1000, 'Tech. Inter': 300, 'Tech. Total': 500, 'Téléphonie': 60}
 
 for assignment in assignment_list:
     cod_id = list_cod[assignment][0]
     size = X_train[assignment][cod_id][0].shape[1]
     #
     X_train_full = []
+    J_train_full = []
     y_train_full = []
     for cod in X_train[assignment].keys():
         X_train_full += X_train[assignment][cod]
+        J_train_full += J_train[assignment][cod]
         y_train_full += y_train[assignment][cod]
     #
     X_train_full = np.array(X_train_full)
+    J_train_full = np.array(J_train_full)
     y_train_full = np.array(y_train_full)
     #
     model[assignment] = Graph()
     model[assignment].add_input(name='input', input_shape=(input_days, size))
     model[assignment].add_input(name='meteo', input_shape=(25,))
-    model[assignment].add_node(LSTM(128), name='lstm', input='input')
+    model[assignment].add_node(LSTM(64), name='lstm', input='input')
     model[assignment].add_node(Dropout(0.3), name='dropout', input='lstm')
-    model[assignment].add_node(Dense(48), name='prediction', input='dropout')
     # DONE: make the results always positive
+    model[assignment].add_node(Dense(48), merge_mode='concat', name='prediction', inputs=['dropout', 'meteo'])
     model[assignment].add_node(Activation('relu'), name='relu', input='prediction')
     model[assignment].add_output(name='output', input='relu')
-    model[assignment].add_node(Merge(inputs=['output', 'meteo'], mode='concat'))
     model[assignment].compile('rmsprop', {'output': 'mse'})
     print('Training...')
-    model[assignment].fit({'input': X_train_full, 'output': y_train_full}, batch_size=16, nb_epoch=30)
+    model[assignment].fit({'input': X_train_full, 'meteo': J_train_full, 'output': y_train_full}, batch_size=16,
+                          nb_epoch=nb_epoch[assignment])
     #
     y_val = np.zeros((538, 48))
-    y_pred = np.zeros((538, 48))
+    y_predit = np.zeros((538, 48))
     for cod_id in X_train[assignment].keys():
         y_val += np.array(y_train[assignment][cod_id])
-        y_pred_cod = model[assignment].predict({'input': np.array(X_train[assignment][cod_id])})['output']
-        y_pred += y_pred_cod
+        y_pred_cod = model[assignment].predict({'input': np.array(X_train[assignment][cod_id]),
+                                                'meteo': np.array(J_train[assignment][cod_id])})['output']
+        y_predit += y_pred_cod
     #
-    y_val *= 20.
-    y_pred *= 20.
+    y_val *= scalage[assignment]
+    y_predit *= scalage[assignment]
     #
-    MSE = np.mean((y_pred-y_val)**2)
+    MSE[assignment] = np.mean((y_predit-y_val)**2)
     print assignment
-    print MSE
+    print MSE[assignment]
     print
 
 
 # TEST TIME
 
 X_test = {}
+J_test = {}
 for assignment in assignment_list:
     X_test[assignment] = {}
+    J_test[assignment] = {}
     for cod in list_cod[assignment]:
         X_test[assignment][cod] = []
+        J_test[assignment][cod] = []
+
 
 count = 0
 for assignment in assignment_list:
@@ -210,23 +239,31 @@ for assignment in assignment_list:
         for day in days_test:
             days = pd.date_range(end=day-timedelta(7), periods=4, freq='7D')
             train_example = x.loc[days].values
+            train_j = np.zeros(25)
+            train_j[:-4] = x.loc[day].iloc[48:48+21].values
+            train_j[-4:] = x.loc[day].iloc[-4:].values
             X_test[assignment][cod_id].append(train_example)
+            J_test[assignment][cod_id].append(train_j)
 
-
-y_pred = {}
+y_pred = pd.read_pickle('tmp/y_pred2')
+# y_pred = {}
 for assignment in assignment_list:
     y_pred[assignment] = np.zeros((12, 48))
     for cod_id in X_train[assignment].keys():
-        y_pred_cod = model[assignment].predict({'input': np.array(X_test[assignment][cod_id])})['output']
+        y_pred_cod = model[assignment].predict({'input': np.array(X_test[assignment][cod_id]), 'meteo': np.array(J_test[assignment][cod_id])})['output']
         y_pred[assignment] += y_pred_cod
-    y_pred[assignment] *= 20
 
+    y_pred[assignment] *= scalage[assignment]
+
+
+pd.to_pickle(y_pred, 'tmp/y_pred3')
+# y_pred = pd.read_pickle('tmp/y_pred2')
 
 f1 = open('submission.txt', 'r')
 submission = f1.readlines()
 f1.close()
 
-name = 'submission/submission_cod.txt'
+name = 'submission/last_bis_bis.txt'
 f2 = open(name, 'w')
 f2.write(submission[0])
 
