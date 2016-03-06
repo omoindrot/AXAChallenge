@@ -1,10 +1,10 @@
 import pandas as pd
-import numpy as np
-from datetime import datetime
 import matplotlib.pyplot as plt
 
 # Read data
-#X = pd.read_csv('data/train_2011_2012.csv', sep=';')
+# X = pd.read_csv('data/train_2011_2012.csv', sep=';')
+
+# VISUALIZATION OF THE DATA TO UNDERSTAND IT
 
 
 X_cleaned = pd.read_pickle('tmp/X_cleaned')

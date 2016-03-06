@@ -3,281 +3,235 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, date, timedelta
+import matplotlib.pyplot as plt
 
 
-# We only keep three columns: DATE, ASS_ASSIGNMENT, CSPL_CALLS
-# X = pd.DataFrame({'DATE': X['DATE'], 'ASS_ASSIGNMENT': X['ASS_ASSIGNMENT'], 'CALLS': X['CSPL_CALLS']})
-
-
-def cleanup_data(X, assignment_list):
+def clean_data(X, assignment_list, columns=None):
     """
-    Clean the data to create a dataframe of size (num_assignments, 365*2+1, 48).
-    Each assignment has every day available, with 48 slots
-    :param X: DataFrame with columns DATE, ASS_ASSIGNMENT and CALLS
-    :param assignment_list: assignments for which we create the cleaned data
-    :return: X_cleaned, DataFrame withe columns DATE, ASS_ASSIGNMENT and 48 columns CALLS
+    Transform the initial DataFrame X to a more appropriate DataFrame.
+    For instance, string columns are transformed into one hot vectors
+    :param X: DataFrame from the csv file
+    :param assignment_list: set of assignments of interest (i.e. ASS_ASSIGNMENT of interest)
+    :return: X_transformed, new DataFrame with columns DATE, multiple feature columns (float32) and CSPL_CALLS
     """
-    X_grouped = X.groupby(['ASS_ASSIGNMENT', 'DATE']).sum()
+    X_transformed = pd.DataFrame()
+    # DATE: dates in 2011 and 2012
+    # SPLIT_COD: unique attribute of the data center
+    # ASS_... : information concerning the rest
+    if columns is None:
+        columns = ['DATE', 'SPLIT_COD', 'ASS_SOC_MERE', 'ASS_DIRECTORSHIP', 'ASS_ASSIGNMENT', 'ASS_PARTNER', 'ASS_POLE', 'CSPL_CALLS']
+    for column in columns:
+        X_transformed[column] = X[column]
+
+    # We only take the inputs where ASS_ASSIGNMENT is in the test set
+    X_list = []
+    for assignment in assignment_list:
+        X_list.append(X_transformed[X_transformed['ASS_ASSIGNMENT'] == assignment])
+    X_transformed = pd.concat(X_list)
+
+    # There are 466 different SPLIT_COD now
+    X_cleaned = {}
+
+    # http://pandas.pydata.org/pandas-docs/stable/groupby.html
+    index_cod = list(X_transformed['SPLIT_COD'].value_counts().index)
+    index_cod.sort()
     index_days = pd.date_range('2011-01-01 00:00:00', periods=2*365+1, freq='D')
     index = pd.date_range('2011-01-01 00:00:00', periods=(2*365+1)*24*2, freq='30MIN')
     begin = date(2011, 1, 1)
-
-    X_cleaned = pd.DataFrame()
     count = 0
-    for assignment in assignment_list:
-        count += 1
-        print "Company %s (%d / %d)" % (assignment, count, len(assignment_list))
-        X_assignment_grouped = X_grouped.loc[assignment]
-        X_assignment_cleaned = pd.DataFrame({'DAY': index_days, 'ASS_ASSIGNMENT': assignment})
-        for i in range(48):
-            X_assignment_cleaned[i] = 0.
-        # For each slot we add the calls
-        for slot in index:
-            i = (slot.date() - begin).days  # index in values to insert (0<=i<731)
-            j = 2 + 2*slot.hour + slot.minute/30  # index in values to insert (0<=j<48)
-            if slot.isoformat(' ')+'.000' in X_assignment_grouped.index:
-                X_assignment_cleaned.iloc[i, j] += X_grouped.loc[assignment, slot.isoformat(' ')+'.000']['CALLS']
-    # We concatenate the DataFrame created
-        X_cleaned = pd.concat([X_cleaned, X_assignment_cleaned])
 
+    # We initialize the dictionary X_cleaned
+    for i in index_cod:
+        count += 1
+        print "index %d / %d" % (count, len(index_cod))
+        x = X_transformed[X_transformed['SPLIT_COD'] == i]
+        assignment = x['ASS_ASSIGNMENT'].iloc[0]
+        x_cleaned = pd.DataFrame(index=index_days)
+        for j in range(len(assignment_list)):
+            if j == assignment_list.index(assignment):
+                x_cleaned['assignment %d' % j] = 1.
+                print j
+            else:
+                x_cleaned['assignment %d' % j] = 0.
+        for j in range(48):
+            x_cleaned['t%d' % j] = 0.
+        X_cleaned[i] = x_cleaned
+
+    # Now we fill in the values
+    X_grouped = X_transformed.groupby(['SPLIT_COD'])
+    count = 0
+    for cod_id, x in X_grouped:
+        count += 1
+        print "index %d / %d" % (count, len(index_cod))
+        assignment = x['ASS_ASSIGNMENT'].iloc[0]
+        calls = x.groupby('DATE').sum()['CSPL_CALLS']
+        for slot in index:
+            pos_i = slot.date()
+            pos_j = 't%d' % (2*slot.hour + slot.minute/30)
+            if slot.isoformat(' ')+'.000' in calls.index:
+                X_cleaned[cod_id].loc[pos_i, pos_j] += calls[slot.isoformat(' ')+'.000']
+
+    # We got a dictionary of DataFrames X_cleaned with days_index and 27 columns for assignment and 48 for calls
+    # We save this to 'tmp/X_cod' with pickle
+    # pd.to_pickle(X_cleaned, 'tmp/X_cod')
     return X_cleaned
 
 
-def lstm_data_assignment(X_cleaned, assignment_list, assignment, input_days=4, flat=False):
+def transform_data(X_cleaned, meteo, assignment_list, leap_days):
     """
-    Creates a training dataset with (input_days, len(assignment_list)+48) in, and 48 out
-    :param X_cleaned: DataFrame with 50 columns (ASS_ASSIGNMENT, DATE, 48 slots)
-    :param assignment: name of the assignment for which we create the dataset
-    :param assignment_list: names of the assignments in total
-    :param input_days: number of days to take into account
-    :param flat: if you want the shape of each row to be (input_days*(48+len),)
-
-    :return: lists X_train, y_train of same length
+    Transform the data into a dictionary with each SPLIT_COD as key. The values are dataframes.
+    :param X_cleaned: from previous function
+    :param meteo: weather dataframe cleaned and normalized
+    :param assignment_list: list of ASS_ASSIGNMENT
+    :param leap_days: public holidays
+    :return: dictionary of dataframes for each COD
     """
+    list_cod = {}
+    for assignment in assignment_list:
+        list_cod[assignment] = []
 
-    X_assignment_cleaned = X_cleaned[X_cleaned['ASS_ASSIGNMENT'] == assignment]
-    index_assignment = assignment_list.index(assignment)
+    for cod_id in X_cleaned.keys():
+        x = X_cleaned[cod_id]
+        assignment = assignment_list[int(x.iloc[0, :27].argmax().split(' ')[1])]
+        list_cod[assignment].append(cod_id)
 
-    X_assignment_cleaned = X_assignment_cleaned.iloc[:, 2:]
-
-    # List of days in the test set
-    days_test = [date(2012, 1, 3), date(2012, 2, 8), date(2012, 3, 12), date(2012, 4, 16),
-                 date(2012, 5, 19), date(2012, 6, 18), date(2012, 7, 22), date(2012, 8, 21),
-                 date(2012, 9, 20), date(2012, 10, 24), date(2012, 11, 26), date(2012, 12, 28)]
-    begin = date(2011, 1, 1)
-
-    X_train = []
-    y_train = []
-    for i in range(2*365+1-(input_days+3)+1):
-        valid = True
-        for day in days_test:
-            diff = (day-begin).days - i
-            if 0 <= diff < input_days+3:
-                valid = False
-        if valid:
-            train_example = np.zeros((input_days, 48+len(assignment_list)))
-            train_example[:, len(assignment_list):] += X_assignment_cleaned[i:i+input_days].values
-            train_example[:, index_assignment] += 1.
-            train_output = X_assignment_cleaned.iloc[i+input_days+2].values
-            if not flat:
-                X_train.append(train_example)
-                y_train.append(train_output)
-            else:
-                X_train.append(train_example.reshape(input_days*(48+len(assignment_list))))
-                y_train.append(train_output.reshape(48))
-    return X_train, y_train
+    total_days = pd.date_range('2011-01-01', '2012-12-31', freq='D')
 
 
-def lstm_data(X_cleaned, assignment_list, input_days=4, flat=False):
+
+    scalage = {}
+    for assignment in assignment_list:
+        scalage[assignment] = 1.
+        for cod_id in list_cod[assignment]:
+            x = X_cleaned[cod_id]
+            scalage[assignment] = max(x.loc[:, 't0':'t47'].max().max(), scalage[assignment])
+        scalage[assignment] /= 3.
+
+    X_bis = {}
+    for assignment in assignment_list:
+        print 'assignment %d/%d' % (assignment_list.index(assignment), len(assignment_list))
+        X_bis[assignment] = {}
+        for cod_id in list_cod[assignment]:
+            x = X_cleaned[cod_id]  # Dataframe of shape 731, 75 with an index on days
+            for i in range(27):
+                x.drop('assignment %d' % i, axis=1, inplace=True)
+            # Add year info
+            x['y2011'] = 0.
+            x['y2012'] = 0.
+            for day in total_days:
+                if day.year == 2011:
+                    x.loc[day]['y2011'] += 1.
+                else:
+                    x.loc[day]['y2012'] += 1.
+            # Add month info
+            for i in range(1, 13):
+                x['month%d' % i] = 0.
+            for day in total_days:
+                x.loc[day]['month%d' % day.month] += 1.
+            # Add weekday info
+            for i in range(7):
+                x['weekday%d' % i] = 0.
+            for day in total_days:
+                x.loc[day]['weekday%d' % day.weekday()] += 1.
+            # Add len(list_cod) columns of 0 / 1 for cod_id
+            for i in range(len(list_cod[assignment])):
+                x['cod%d' % i] = 0.
+            x['cod%d' % list_cod[assignment].index(cod_id)] += 1.
+            # Add the meteo data for 3 days ahead
+            x['TEMP'] = 0.
+            x['PRESSURE'] = 0.
+            x['PRECIP'] = 0.
+            for day in pd.date_range('2011-01-01', '2012-12-28', freq='D'):
+                x.loc[day]['TEMP'] = meteo.loc[day]['TEMP']
+                x.loc[day]['PRESSURE'] = meteo.loc[day]['PRESSURE']
+                x.loc[day]['PRECIP'] = meteo.loc[day]['PRECIP']
+            #
+            x.loc[:, 't0':'t47'] /= scalage[assignment]
+            x['leap_day'] = 0.
+            x['leap_day'].loc[leap_days] = 1.
+            X_bis[assignment][cod_id] = x
+
+    pd.to_pickle((list_cod, X_bis, scalage), 'tmp/X_bis')
+    return list_cod, X_bis, scalage
+
+
+def build_training_set(X_bis, assignment_list, list_cod, days_test):
     """
-    Creates a dataset for all the assignments
-    :param X_cleaned: DataFrame with 50 columns (ASS_ASSIGNMENT, DATE, 48 slots)
-    :param assignment_list: names of the assignments for which we create the dataset
-    :param input_days: number of days to take into account
-    :param flat: if you want the shape of each row to be (input_days*48,)
-    :return: lists X_train, y_train of same length
+    Build the training set
+    :param X_cleaned: dictionary of dataframes for each split_cod
+    :param assignment_list:
+    :param input_days:
+    :param flat:
+    :return: dictionaries X_train, y_train
     """
+    index_days = pd.date_range('2011-01-01', '2012-12-03', freq='D')
+    X_train = {}
+    J_train = {}
+    y_train = {}
 
-    X_train = []
-    y_train = []
+    for assignment in assignment_list:
+        X_train[assignment] = {}
+        J_train[assignment] = {}
+        y_train[assignment] = {}
+        for cod in list_cod[assignment]:
+            X_train[assignment][cod] = []
+            J_train[assignment][cod] = []
+            y_train[assignment][cod] = []
+
     count = 0
     for assignment in assignment_list:
         count += 1
-        print "Company in progress: %s (%d/%d)" % (assignment, count, len(assignment_list))
-        x, y = lstm_data_assignment(X_cleaned, assignment_list, assignment, input_days=input_days, flat=flat)
-        X_train += x
-        y_train += y
-    return X_train, y_train
+        print "index %d / %d" % (count, len(assignment_list))
+        for cod_id in X_bis[assignment].keys():
+            x = X_bis[assignment][cod_id]
+            # Create the examples
+            for day in index_days:
+                valid = True
+                for day_test in days_test:
+                    for i in range(5):
+                        diff = (day_test - (day.date() + timedelta(7*i))).days
+                        if 0 <= diff < 3:
+                            valid = False
+                if valid:
+                    days = pd.date_range(day, periods=4, freq='7D')
+                    train_example = x.loc[days].values
+                    train_j = np.zeros(25)
+                    train_j[:-4] = x.loc[day+timedelta(28)].iloc[48:48+21].values
+                    train_j[-4:] = x.loc[day+timedelta(28)].iloc[-4:].values
+                    train_output = x.loc[day+timedelta(28)].loc['t0':'t47'].values
+                    X_train[assignment][cod_id].append(train_example)
+                    J_train[assignment][cod_id].append(train_j)
+                    y_train[assignment][cod_id].append(train_output)
+
+    return X_train, J_train, y_train
 
 
-def split_train_val(X, y, split_val=0.2):
-    """
-    Splits lists between training and validation set
-    :param X: list of training examples
-    :param y: list of outputs, same length as X
-    :param split_val: share of inputs used as validation set
+def build_test_set(X_bis, assignment_list, list_cod, days_test):
 
-    :return: X_train, X_val, y_train, y_val numpy arrays
-    """
-    X_train = np.array(X)
-    y_train = np.array(y)
-
-    day_indexes = np.arange(len(X_train))
-    np.random.shuffle(day_indexes)
-
-    train_indexes = day_indexes[split_val*len(X_train):]
-    val_indexes = day_indexes[:split_val*len(X_train)]
-
-    X_val = X_train[val_indexes]
-    X_train = X_train[train_indexes]
-
-    y_val = y_train[val_indexes]
-    y_train = y_train[train_indexes]
-
-    return X_train, X_val, y_train, y_val
-
-
-def lstm_test_set(X_cleaned, assignment_list, test_days, input_days=4, flat=False):
-    """
-    Creates the test dataset with (input_days, 48) in, and 48 out
-    :param X_cleaned: DataFrame with 50 columns (ASS_ASSIGNMENT, DATE, 48 slots)
-    :param assignment_list: names of the assignments for which we create the dataset
-    :param test_days: days trying to be predicted
-    :param input_days: number of days to take into account
-    :param flat: if you want the shape of each row to be (input_days*48,)
-
-    :return: lists X_test
-    """
-
-    begin = date(2011, 1, 1)
-    X_test_assignments = {}
+    X_test = {}
+    J_test = {}
     for assignment in assignment_list:
-        X_test_assignments[assignment] = []
-        X_cleaned_assignment = X_cleaned[X_cleaned['ASS_ASSIGNMENT'] == assignment].iloc[:, 2:]
-        index_assignment = assignment_list.index(assignment)
-        for day in test_days:
-            i = (day - begin).days - 3 - input_days + 1
-            test_example = np.zeros((input_days, (len(assignment_list)+48)))
-            test_example[:, len(assignment_list):] = X_cleaned_assignment[i: i+input_days].values
-            test_example[:, index_assignment] = 1.
-            if not flat:
-                X_test_assignments[assignment].append(test_example)
-            else:
-                X_test_assignments[assignment].append(test_example.reshape(input_days*(len(assignment_list)+48)))
-        X_test_assignments[assignment] = np.array(X_test_assignments[assignment])
-
-    return X_test_assignments
+        X_test[assignment] = {}
+        J_test[assignment] = {}
+        for cod in list_cod[assignment]:
+            X_test[assignment][cod] = []
+            J_test[assignment][cod] = []
 
 
+    count = 0
+    for assignment in assignment_list:
+        count += 1
+        print "index %d / %d" % (count, len(assignment_list))
+        for cod_id in X_bis[assignment].keys():
+            x = X_bis[assignment][cod_id]
+            # Create the test inputs
+            for day in days_test:
+                days = pd.date_range(end=day-timedelta(7), periods=4, freq='7D')
+                train_example = x.loc[days].values
+                train_j = np.zeros(25)
+                train_j[:-4] = x.loc[day].iloc[48:48+21].values
+                train_j[-4:] = x.loc[day].iloc[-4:].values
+                X_test[assignment][cod_id].append(train_example)
+                J_test[assignment][cod_id].append(train_j)
 
-'''
-If you want to create columns YEAR...
-# We create columns YEAR, MONTH, DATE, HOUR
-X['DATE'] = X['DATE'].str.split(' ')
-X['YEAR'] = X['DATE'].apply(lambda s: s[0])
-X['TIME'] = X['DATE'].apply(lambda s: s[1])
-X['YEAR'] = X['YEAR'].str.split('-')
-X['MONTH'] = X['YEAR'].apply(lambda s: int(s[1]))
-X['DAY'] = X['YEAR'].apply(lambda s: int(s[2]))
-X['YEAR'] = X['YEAR'].apply(lambda s: int(s[0]))
-X['TIME'] = X['TIME'].str.split(':')
-X['HOUR'] = X['TIME'].apply(lambda s: int(s[0]))
-X['MINUTE'] = X['TIME'].apply(lambda s: s[1])
-X['MINUTE'] = X['MINUTE'].apply(lambda s: int(s)/60.)
-X['HOUR'] += X['MINUTE']
-#X.drop('DATE', axis=1, inplace=True)
-X.drop('TIME', axis=1, inplace=True)
-X.drop('MINUTE', axis=1, inplace=True)
-'''
-
-
-# List of assignments ('ASS_ASSIGNMENT')
-# X['ASS_ASSIGNMENT'].value_counts()
-'''
-Total: 55 valeurs différentes
-Total dans le test set: 27 entreprises différentes
-
-Téléphonie                        2931003
-#A DEFINIR                         1050065
-Médical                            790971
-#Technique Belgique                 495548
-#Technique International            304851
-RENAULT                            289182
-Tech. Axa                          282303
-Tech. Inter                        265290
-Services                           264384
-#TPA                                220747
-Nuit                               161517
-Tech. Total                        137288
-Domicile                           133187
-#TAI - RISQUE                       127610
-#Medicine                           121249
-#Technical                          121159
-#LifeStyle                          121112
-#Maroc - Renault                    116266
-#TAI - SERVICE                      115190
-#TAI - CARTES                        92063
-#TAI - RISQUE SERVICES               88352
-Gestion - Accueil Telephonique      85346
-Manager                             69928
-Japon                               66601
-Regulation Medicale                 63628
-#Finances PCX                        42863
-Mécanicien                          36586
-#KPT                                 34751
-#Maroc - Génériques                  33457
-Gestion                             33035
-SAP                                 32782
-#TAI - PNEUMATIQUES                  32549
-Gestion Renault                     31490
-RTC                                 30407
-CAT                                 29921
-#AEVA                                29449
-Gestion Assurances                  27502
-#NL Technique                        24551
-Crises                              24508
-#Truck Assistance                    24403
-Gestion Clients                     24142
-#NL Médical                          23869
-#Divers                              23580
-Gestion DZ                          22641
-Gestion Relation Clienteles         20402
-#TAI - PANNE MECANIQUE               13756
-Gestion Amex                        13248
-#FO Remboursement                    13198
-#Réception                           12846
-CMS                                 12574
-#DOMISERVE                           11395
-Prestataires                         9598
-#IPA Belgique - E/A MAJ               7894
-#Evenements                            431
-#Juridique                              12
-'''
-
-
-
-# List of companies ('ASS_SOC_MERE')
-# X['ASS_SOC_MERE'].value_counts()
-'''
-Total: 8 valeurs différentes
-Total dans le test set: 27 entreprises différentes
-
-Entity1 France                        5348091 Médical has 249167 inputs
-Entity2 Belgique                      2257811 (only in Médical, with 541804 inputs)
-#TAI                                    974348
-#Entity2 Suisse                         421863
-#Entity1 Maroc Services                 116266
-#Entity1 Maroc                           33457
-#AMERICAN EXPRESS VOYAGES D'AFFAIRE      29449
-#DOMISERVE                               11395
-'''
-
-'''
-ASS_SOC_MERE     - ASS_DIRECTORSHIP - ASS_ASSIGNMENT -        ASS_PARTNER              - ASS_POLE
-
-Entity2 Belgique - Assistance (OPS) - Médical        - Nan                             - MEDICAL
-
-Entity1 France - Assistance         - Crises         - Crises                          - CRISES
-
-Entity1 France - Commerciale        - RTC            - Relation Téléphonique Clientèle - CLIENTS
-'''
+    return X_test, J_test

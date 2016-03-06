@@ -1,71 +1,66 @@
 # encoding: utf-8
 
-import pandas as pd
 import numpy as np
-from datetime import datetime, date, timedelta
-
-from preprocessing import cleanup_data, lstm_data, split_train_val, lstm_test_set
-from submission import create_submission
 
 from keras.models import Graph
-from keras.layers.core import Dense, Dropout, Activation
+from keras.layers.core import Dense, Dropout, Activation, Merge
 from keras.layers.embeddings import Embedding
 from keras.layers.recurrent import LSTM
 
-# Create a submission with a Fully Connected Network taking the week before as input
 
-# X = pd.read_csv('data/train_2011_2012.csv', sep=';')
-# res = pd.read_csv('submission.txt', sep='\t')
+def model_creation(X_train, J_train, y_train, scalage, assignment_list, list_cod, input_days=4):
+    model = {}
+    MSE = {}
 
-# We can sort by date
-# X.sort_values(by=['YEAR', 'MONTH', 'DAY', 'HOUR'], inplace=True)
+    nb_epoch = {'CAT': 1000, 'Domicile': 500, 'Gestion - Accueil Telephonique': 500, 'Japon': 300, 'Médical': 300,
+                'Nuit': 300, 'RENAULT': 300, 'RTC': 300, 'Regulation Medicale': 300, 'SAP': 300, 'Services': 300,
+                'Tech. Axa': 1000, 'Tech. Inter': 300, 'Tech. Total': 500, 'Téléphonie': 60}
 
-# Set of companies
-companies_set =['CAT', 'CMS', 'Crises', 'Domicile', 'Gestion', 'Gestion - Accueil Telephonique', 'Gestion Amex',
-                'Gestion Assurances', 'Gestion Clients', 'Gestion DZ', 'Gestion Relation Clienteles', 'Gestion Renault',
-                'Japon', 'Manager', 'Mécanicien', 'Médical', 'Nuit', 'Prestataires', 'RENAULT', 'RTC',
-                'Regulation Medicale', 'SAP', 'Services', 'Tech. Axa', 'Tech. Inter', 'Tech. Total', 'Téléphonie']
+    for assignment in assignment_list:
+        cod_id = list_cod[assignment][0]
+        size = X_train[assignment][cod_id][0].shape[1]
+        #
+        X_train_full = []
+        J_train_full = []
+        y_train_full = []
+        for cod in X_train[assignment].keys():
+            X_train_full += X_train[assignment][cod]
+            J_train_full += J_train[assignment][cod]
+            y_train_full += y_train[assignment][cod]
+        #
+        X_train_full = np.array(X_train_full)
+        J_train_full = np.array(J_train_full)
+        y_train_full = np.array(y_train_full)
+        #
+        model[assignment] = Graph()
+        model[assignment].add_input(name='input', input_shape=(input_days, size))
+        model[assignment].add_input(name='meteo', input_shape=(25,))
+        model[assignment].add_node(LSTM(64), name='lstm', input='input')
+        model[assignment].add_node(Dropout(0.3), name='dropout', input='lstm')
+        # DONE: make the results always positive
+        model[assignment].add_node(Dense(48), merge_mode='concat', name='prediction', inputs=['dropout', 'meteo'])
+        model[assignment].add_node(Activation('relu'), name='relu', input='prediction')
+        model[assignment].add_output(name='output', input='relu')
+        model[assignment].compile('rmsprop', {'output': 'mse'})
+        print('Training...')
 
-num_companies = len(companies_set)
+        model[assignment].fit({'input': X_train_full, 'meteo': J_train_full, 'output': y_train_full}, batch_size=16,
+                              nb_epoch=nb_epoch[assignment])
+        #
+        y_val = np.zeros((538, 48))
+        y_predit = np.zeros((538, 48))
+        for cod_id in X_train[assignment].keys():
+            y_val += np.array(y_train[assignment][cod_id])
+            y_pred_cod = model[assignment].predict({'input': np.array(X_train[assignment][cod_id]),
+                                                    'meteo': np.array(J_train[assignment][cod_id])})['output']
+            y_predit += y_pred_cod
+        #
+        y_val *= scalage[assignment]
+        y_predit *= scalage[assignment]
+        #
+        MSE[assignment] = np.mean((y_predit-y_val)**2)
+        print assignment
+        print MSE[assignment]
+        print
 
-# We only keep three columns: DATE, ASS_ASSIGNMENT, CSPL_CALLS
-# X = pd.DataFrame({'DATE': X['DATE'], 'ASS_ASSIGNMENT': X['ASS_ASSIGNMENT'], 'CALLS': X['CSPL_CALLS']})
-
-# Select the number of days to take into account
-input_days = 5
-# X_cleaned = cleanup_data(X, companies_set)
-X_cleaned = pd.read_pickle('tmp/X_cleaned')
-
-X_train, y_train = lstm_data(X_cleaned, companies_set, input_days=input_days, flat=False)
-X_train, X_val, y_train, y_val = split_train_val(X_train, y_train)
-
-print '-'*50
-print '%d training examples of size (%d, %d)' % X_train.shape
-print '%d training outputs of size (%d,)' % y_train.shape
-print '-'*50
-print '%d validation examples of size (%d, %d)' % X_val.shape
-print '%d validation outputs of size (%d, )' % y_val.shape
-
-model = Graph()
-model.add_input(name='input', input_shape=(input_days, num_companies+48))
-model.add_node(LSTM(64), name='lstm', input='input')
-model.add_node(Dropout(0.5), name='dropout', input='lstm')
-model.add_node(Dense(48), name='prediction', input='dropout')
-# DONE: make the results always positive
-model.add_node(Activation('relu'), name='relu', input='prediction')
-model.add_output(name='output', input='relu')
-
-model.compile('rmsprop', {'output': 'mse'})
-
-print('Training...')
-model.fit({'input': X_train, 'output': y_train},
-          batch_size=16,
-          nb_epoch=1, validation_data={'input': X_val, 'output': y_val})
-
-
-y_predicted = model.predict({'input': X_val})['output']
-y_predicted[y_predicted<0] = 0.
-MSE = np.mean((y_predicted-y_val)**2)
-# MSE = 67.65 (with full data, and input_days=4)
-
-create_submission(X_cleaned, model, companies_set, input_days=input_days, flat=False)
+    return model, MSE
